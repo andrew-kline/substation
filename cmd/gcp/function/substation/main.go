@@ -18,6 +18,9 @@ import (
 // errFunctionMissingHandler is returned when the Function is deployed without a configured handler.
 var errFunctionMissingHandler = fmt.Errorf("SUBSTATION_FUNCTION_HANDLER environment variable is missing")
 
+// errFunctionInvalidHandler is returned when the Function is deployed with an unsupported handler.
+var errFunctionInvalidHandler = fmt.Errorf("SUBSTATION_FUNCTION_HANDLER environment variable is invalid")
+
 func init() {
 	handler, ok := os.LookupEnv("SUBSTATION_FUNCTION_HANDLER")
 	if !ok {
@@ -29,8 +32,12 @@ func init() {
 		if err := funcframework.RegisterCloudEventFunctionContext(context.Background(), "/", cloudStorageHandler); err != nil {
 			panic(fmt.Errorf("init handler %s: %v", handler, err))
 		}
+	case "GCP_HTTP":
+		if err := funcframework.RegisterHTTPFunctionContext(context.Background(), "/", httpHandler); err != nil {
+			panic(fmt.Errorf("init handler %s: %v", handler, err))
+		}
 	default:
-		panic(fmt.Errorf("init handler %s: %v", handler, errFunctionMissingHandler))
+		panic(fmt.Errorf("init handler %s: %v", handler, errFunctionInvalidHandler))
 	}
 }
 
