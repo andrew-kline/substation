@@ -8,7 +8,11 @@ import (
 
 	"github.com/brexhq/substation/v2"
 	"github.com/brexhq/substation/v2/message"
+
+	"github.com/brexhq/substation/v2/internal/log"
 )
+
+const httpErrInternal = "internal server error\n"
 
 // errInvalidJSON is returned when a transform produces invalid JSON and cannot be returned.
 var errInvalidJSON = fmt.Errorf("transformed data is invalid JSON and cannot be returned")
@@ -19,30 +23,35 @@ type httpMetadata struct {
 	Headers map[string][]string `json:"headers"`
 }
 
+func respondHTTPError(w http.ResponseWriter, err error) {
+	log.WithField("error", err).Error("http handler")
+	http.Error(w, httpErrInternal, http.StatusInternalServerError)
+}
+
 func httpHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	conf, err := getConfig(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
 	cfg := substation.Config{}
 	if err := json.NewDecoder(conf).Decode(&cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
 	sub, err := substation.New(ctx, cfg)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
@@ -54,7 +63,7 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := json.Marshal(m)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
@@ -65,7 +74,7 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	res, err := sub.Transform(ctx, msg...)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
@@ -76,13 +85,13 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if !json.Valid(msg.Data()) {
-			http.Error(w, errInvalidJSON.Error(), http.StatusInternalServerError)
+			respondHTTPError(w, errInvalidJSON)
 			return
 		}
 
 		var rm json.RawMessage
 		if err := json.Unmarshal(msg.Data(), &rm); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			respondHTTPError(w, err)
 			return
 		}
 
@@ -91,7 +100,7 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := json.Marshal(output)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondHTTPError(w, err)
 		return
 	}
 
