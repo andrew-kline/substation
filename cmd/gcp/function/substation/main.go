@@ -37,6 +37,10 @@ func init() {
 		if err := funcframework.RegisterHTTPFunctionContext(context.Background(), "/", httpHandler); err != nil {
 			panic(fmt.Errorf("init handler %s: %v", handler, err))
 		}
+	case "GCP_PUBSUB":
+		if err := funcframework.RegisterCloudEventFunctionContext(context.Background(), "/", pubsubHandler); err != nil {
+			panic(fmt.Errorf("init handler %s: %v", handler, err))
+		}
 	default:
 		panic(fmt.Errorf("init handler %s: %v", handler, errFunctionInvalidHandler))
 	}
