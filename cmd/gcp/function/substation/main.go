@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 
@@ -17,6 +18,9 @@ import (
 
 // errFunctionMissingHandler is returned when the Function is deployed without a configured handler.
 var errFunctionMissingHandler = fmt.Errorf("SUBSTATION_FUNCTION_HANDLER environment variable is missing")
+
+// errFunctionInvalidHandler is returned when the Function is deployed with an unsupported handler.
+var errFunctionInvalidHandler = fmt.Errorf("SUBSTATION_FUNCTION_HANDLER environment variable is invalid")
 
 func init() {
 	handler, ok := os.LookupEnv("SUBSTATION_FUNCTION_HANDLER")
@@ -29,8 +33,12 @@ func init() {
 		if err := funcframework.RegisterCloudEventFunctionContext(context.Background(), "/", cloudStorageHandler); err != nil {
 			panic(fmt.Errorf("init handler %s: %v", handler, err))
 		}
+	case "GCP_HTTP":
+		if err := funcframework.RegisterHTTPFunctionContext(context.Background(), "/", httpHandler); err != nil {
+			panic(fmt.Errorf("init handler %s: %v", handler, err))
+		}
 	default:
-		panic(fmt.Errorf("init handler %s: %v", handler, errFunctionMissingHandler))
+		panic(fmt.Errorf("init handler %s: %v", handler, errFunctionInvalidHandler))
 	}
 }
 
@@ -40,32 +48,49 @@ type customConfig struct {
 	Concurrency int `json:"concurrency"`
 }
 
+var (
+	configOnce sync.Once
+	configData []byte
+	configErr  error
+)
+
 func getConfig(ctx context.Context) (io.Reader, error) {
-	buf := new(bytes.Buffer)
+	configOnce.Do(func() {
+		buf := new(bytes.Buffer)
 
-	cfg, found := os.LookupEnv("SUBSTATION_CONFIG")
-	if !found {
-		return nil, fmt.Errorf("no config found")
+		cfg, found := os.LookupEnv("SUBSTATION_CONFIG")
+		if !found {
+			configErr = fmt.Errorf("no config found")
+			return
+		}
+
+		path, err := file.Get(ctx, cfg)
+		if err != nil {
+			configErr = err
+			return
+		}
+		defer os.Remove(path)
+
+		conf, err := os.Open(path)
+		if err != nil {
+			configErr = err
+			return
+		}
+		defer conf.Close()
+
+		if _, err := io.Copy(buf, conf); err != nil {
+			configErr = err
+			return
+		}
+
+		configData = buf.Bytes()
+	})
+
+	if configErr != nil {
+		return nil, configErr
 	}
 
-	path, err := file.Get(ctx, cfg)
-	defer os.Remove(path)
-
-	if err != nil {
-		return nil, err
-	}
-
-	conf, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer conf.Close()
-
-	if _, err := io.Copy(buf, conf); err != nil {
-		return nil, err
-	}
-
-	return buf, nil
+	return bytes.NewReader(configData), nil
 }
 
 func main() {
